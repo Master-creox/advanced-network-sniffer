@@ -1,45 +1,51 @@
+"""Live capture for Advanced Network Sniffer v2.
+
+Uses Scapy only as a frame source; every frame is fed as raw bytes into the
+same pure-Python engine that powers PCAP analysis - so live mode and offline
+mode always agree. Requires admin/root (Windows: Npcap + admin terminal).
+"""
+import time
 from datetime import datetime
-from scapy.all import sniff, IP, TCP, UDP, DNS, DNSQR, DNSRR
 
-def packet_callback(packet):
-    if not packet.haslayer(IP):
+from analyzer import detect, dissect, report
+
+
+def start_sniffer(count=0):
+    try:
+        from scapy.all import sniff
+    except ImportError:
+        print("Live capture needs Scapy:  pip install scapy")
+        print("Offline analysis works without it:  python main.py analyze capture.pcap")
         return
+    packets = []
 
-    ip_layer = packet[IP]
-    print(f"\n===== Packet Captured @ {datetime.now()} =====")
-    print(f"Source IP: {ip_layer.src}")
-    print(f"Destination IP: {ip_layer.dst}")
+    def _cb(pkt):
+        try:
+            raw = bytes(pkt)
+        except Exception:
+            return
+        p = dissect.dissect(time.time(), raw)
+        packets.append(p)
+        extra = ""
+        if p.dns and p.dns.get("qr") == 0:
+            extra = f"  DNS query: {p.dns.get('qname', '')}"
+        elif p.tls_sni:
+            extra = f"  TLS SNI: {p.tls_sni}"
+        elif p.http:
+            extra = f"  HTTP {p.http.get('method', '')} {p.http.get('host', '')}{p.http.get('path', '')}"
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] {p.app_protocol:<5} "
+              f"{p.src_ip}:{p.src_port} -> {p.dst_ip}:{p.dst_port}  {p.length}B{extra}")
 
-    if packet.haslayer(TCP):
-        tcp = packet[TCP]
-        print("Protocol: TCP")
-        print(f"Source Port: {tcp.sport}, Destination Port: {tcp.dport}")
-
-    if packet.haslayer(UDP):
-        udp = packet[UDP]
-        print("Protocol: UDP")
-        print(f"Source Port: {udp.sport}, Destination Port: {udp.dport}")
-
-    if packet.haslayer(DNS):
-        dns = packet[DNS]
-
-        if dns.qr == 0 and dns.qd is not None:
-            print(f"DNS Query: {dns.qd.qname.decode()}")
-
-        if dns.qr == 1 and dns.an is not None:
-            print(f"DNS Response: {dns.an.rrname.decode()} -> {dns.an.rdata}")
-
-    if packet.haslayer(IP) and not (
-        packet.haslayer(TCP) or 
-        packet.haslayer(UDP) or 
-        packet.haslayer(DNS)
-    ):
-        print(f"Protocol: Unknown ({packet[IP].proto})")
-
-
-def start_sniffer():
-    print("Starting network sniffer... (press Ctrl+C to stop)")
-    sniff(prn=packet_callback, store=False)
+    print("Starting Advanced Network Sniffer v2 (live) - Ctrl+C to stop")
+    try:
+        sniff(prn=_cb, store=False, count=count)
+    except KeyboardInterrupt:
+        pass
+    except PermissionError:
+        print("\nPermission denied: live capture needs admin/root privileges.")
+        return
+    if packets:
+        print("\n" + report.build_report(packets, detect.run_all(packets)))
 
 
 if __name__ == "__main__":

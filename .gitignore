@@ -1,20 +1,7 @@
-# Python cache
 __pycache__/
 *.pyc
-
-# Virtual environments
-venv/
-.env/
-
-# OS generated files
-.DS_Store
-
-# IDE folders
-.vscode/
-.idea/
-
-# Packet capture files
-*.pcap
-
-# Test cache
 .pytest_cache/
+sample.pcap
+*.json
+venv/
+.venv/
